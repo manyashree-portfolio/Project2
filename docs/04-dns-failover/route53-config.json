@@ -1,0 +1,125 @@
+{
+  "Comment": "PaySecure api.paysecure.in failover configuration. Replace placeholders (Z1234567890, ALB DNS names, health check IDs, account id) with real values before applying.",
+  "HealthChecks": [
+    {
+      "Name": "mum-api-deep-health",
+      "HealthCheckConfig": {
+        "Type": "HTTPS",
+        "FullyQualifiedDomainName": "api-mum.paysecure.in",
+        "Port": 443,
+        "ResourcePath": "/health/deep",
+        "RequestInterval": 10,
+        "FailureThreshold": 3,
+        "MeasureLatency": true,
+        "EnableSNI": true,
+        "Regions": ["us-east-1", "eu-west-1", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1"]
+      }
+    },
+    {
+      "Name": "mum-synthetic-transaction",
+      "HealthCheckConfig": {
+        "Type": "HTTPS",
+        "FullyQualifiedDomainName": "api-mum.paysecure.in",
+        "Port": 443,
+        "ResourcePath": "/health/synthetic",
+        "RequestInterval": 10,
+        "FailureThreshold": 3,
+        "MeasureLatency": true,
+        "EnableSNI": true,
+        "Regions": ["us-east-1", "eu-west-1", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1"]
+      }
+    },
+    {
+      "Name": "mum-api-success-rate-alarm",
+      "HealthCheckConfig": {
+        "Type": "CLOUDWATCH_METRIC",
+        "AlarmIdentifier": {
+          "Region": "ap-south-1",
+          "Name": "paysecure-payment-api-success-rate-below-99-5"
+        },
+        "InsufficientDataHealthStatus": "LastKnownStatus"
+      }
+    },
+    {
+      "Name": "mum-region-calculated",
+      "HealthCheckConfig": {
+        "Type": "CALCULATED",
+        "ChildHealthChecks": ["HC-MUM-DEEP", "HC-MUM-SYNTHETIC", "HC-MUM-ALARM"],
+        "HealthThreshold": 2
+      }
+    },
+    {
+      "Name": "hyd-api-live-health",
+      "HealthCheckConfig": {
+        "Type": "HTTPS",
+        "FullyQualifiedDomainName": "api-hyd.paysecure.in",
+        "Port": 443,
+        "ResourcePath": "/health/live",
+        "RequestInterval": 10,
+        "FailureThreshold": 3,
+        "MeasureLatency": true,
+        "EnableSNI": true,
+        "Regions": ["us-east-1", "eu-west-1", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1"]
+      }
+    }
+  ],
+  "ChangeBatch": {
+    "Comment": "Failover routing for api.paysecure.in. CNAME records are used because alias records to an ALB have a fixed 60 s TTL.",
+    "Changes": [
+      {
+        "Action": "UPSERT",
+        "ResourceRecordSet": {
+          "Name": "api.paysecure.in.",
+          "Type": "CNAME",
+          "SetIdentifier": "mumbai-primary",
+          "Failover": "PRIMARY",
+          "TTL": 30,
+          "ResourceRecords": [
+            { "Value": "paysecure-mum-alb-123456789.ap-south-1.elb.amazonaws.com" }
+          ],
+          "HealthCheckId": "HC-MUM-CALCULATED"
+        }
+      },
+      {
+        "Action": "UPSERT",
+        "ResourceRecordSet": {
+          "Name": "api.paysecure.in.",
+          "Type": "CNAME",
+          "SetIdentifier": "hyderabad-secondary",
+          "Failover": "SECONDARY",
+          "TTL": 30,
+          "ResourceRecords": [
+            { "Value": "paysecure-hyd-alb-987654321.ap-south-2.elb.amazonaws.com" }
+          ],
+          "HealthCheckId": "HC-HYD-LIVE"
+        }
+      },
+      {
+        "Action": "UPSERT",
+        "ResourceRecordSet": {
+          "Name": "api-mum.paysecure.in.",
+          "Type": "CNAME",
+          "TTL": 60,
+          "ResourceRecords": [
+            { "Value": "paysecure-mum-alb-123456789.ap-south-1.elb.amazonaws.com" }
+          ]
+        }
+      },
+      {
+        "Action": "UPSERT",
+        "ResourceRecordSet": {
+          "Name": "api-hyd.paysecure.in.",
+          "Type": "CNAME",
+          "TTL": 60,
+          "ResourceRecords": [
+            { "Value": "paysecure-hyd-alb-987654321.ap-south-2.elb.amazonaws.com" }
+          ]
+        }
+      }
+    ]
+  },
+  "ApplyWith": {
+    "healthChecks": "aws route53 create-health-check --caller-reference <unique-id> --health-check-config file://<one-health-check-config.json>",
+    "records": "aws route53 change-resource-record-sets --hosted-zone-id Z1234567890 --change-batch file://<change-batch.json>"
+  }
+}

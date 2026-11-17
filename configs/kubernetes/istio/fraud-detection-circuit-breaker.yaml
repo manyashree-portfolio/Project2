@@ -1,0 +1,35 @@
+# PRE-STAGED circuit breaker for fraud-detection (RB-12 step 10).
+# Apply:  kubectl --context paysecure-primary -n paysecure apply -f configs/kubernetes/istio/fraud-detection-circuit-breaker.yaml
+# Remove: kubectl --context paysecure-primary -n paysecure delete -f configs/kubernetes/istio/fraud-detection-circuit-breaker.yaml   (RB-12 rollback)
+# Callers fail fast instead of piling up on a broken fraud-detection and exhausting their own pools.
+# Values match RB-12: consecutive5xxErrors 5, interval 5s, baseEjectionTime 30s, maxEjectionPercent 100,
+# http1MaxPendingRequests 50, maxRequestsPerConnection 10.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: fraud-detection
+  namespace: paysecure
+spec:
+  host: fraud-detection
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100            # assumed
+      http:
+        http1MaxPendingRequests: 50
+        maxRequestsPerConnection: 10
+        http2MaxRequests: 200          # assumed; calls between services are gRPC (HTTP/2)
+    outlierDetection:
+      consecutive5xxErrors: 5
+      consecutiveGatewayErrors: 5
+      interval: 5s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 100
+      minHealthPercent: 0
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary

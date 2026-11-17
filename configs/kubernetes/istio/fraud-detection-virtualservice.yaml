@@ -1,0 +1,22 @@
+# Baseline routing for fraud-detection. RB-12 patches this VirtualService:
+#   step 11: retries -> 0 and timeout 800ms; step 18: canary weights 90/10.
+# Retries are kept small here because retries amplify load in a cascading failure.
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: fraud-detection
+  namespace: paysecure
+spec:
+  hosts:
+    - fraud-detection
+  http:
+    - timeout: 1s
+      retries:
+        attempts: 1
+        perTryTimeout: 400ms
+        retryOn: connect-failure,refused-stream,unavailable
+      route:
+        - destination:
+            host: fraud-detection
+            subset: stable
+          weight: 100

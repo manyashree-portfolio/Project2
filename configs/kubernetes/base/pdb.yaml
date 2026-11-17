@@ -1,0 +1,55 @@
+# Keep at least 75% of the critical-path services up during node drains and AZ loss (RB-10).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-api
+  namespace: paysecure
+spec:
+  minAvailable: 75%
+  selector:
+    matchLabels:
+      app: payment-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: transaction-processor
+  namespace: paysecure
+spec:
+  minAvailable: 75%
+  selector:
+    matchLabels:
+      app: transaction-processor
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fraud-detection
+  namespace: paysecure
+spec:
+  minAvailable: 75%
+  selector:
+    matchLabels:
+      app: fraud-detection
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tokenisation-service
+  namespace: paysecure-cde
+spec:
+  minAvailable: 75%
+  selector:
+    matchLabels:
+      app: tokenisation-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: settlement-engine
+  namespace: paysecure
+spec:
+  minAvailable: 75%
+  selector:
+    matchLabels:
+      app: settlement-engine

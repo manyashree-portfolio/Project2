@@ -1,0 +1,414 @@
+# Deployments, Services and ServiceAccount for the critical-path microservices.
+# Image tags, replica floors and resource sizes are ASSUMED: take them from the running Mumbai cluster.
+# `replicas` is omitted on the autoscaled services (the HPA owns it). Images must be signed (policies/verify-signed-images.yaml)
+# and are pinned to a version, never :latest. Secrets are only REFERENCED here: they are created by AWS Secrets Manager
+# (External Secrets or the CSI driver) and replicated to both regions.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: paysecure-app
+  namespace: paysecure
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/paysecure-app   # IRSA role, replace ACCOUNT
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: paysecure
+  labels:
+    app: payment-api
+    tier: frontend
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: payment-api
+  template:
+    metadata:
+      labels:
+        app: payment-api
+        tier: frontend
+        version: stable
+    spec:
+      serviceAccountName: paysecure-app
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: payment-api
+          image: ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/paysecure/payment-api:1.0.0
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: DB_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: aurora-endpoint
+            - name: KAFKA_BOOTSTRAP
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: kafka-bootstrap
+            - name: WRITE_READY
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: write_ready
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-credentials
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-credentials
+                  key: password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api
+  namespace: paysecure
+  labels:
+    app: payment-api
+spec:
+  selector:
+    app: payment-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-processor
+  namespace: paysecure
+  labels:
+    app: transaction-processor
+    tier: backend
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: transaction-processor
+  template:
+    metadata:
+      labels:
+        app: transaction-processor
+        tier: backend
+        version: stable
+    spec:
+      serviceAccountName: paysecure-app
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: transaction-processor
+          image: ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/paysecure/transaction-processor:1.0.0
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: DB_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: aurora-endpoint
+            - name: KAFKA_BOOTSTRAP
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: kafka-bootstrap
+            - name: WRITE_READY
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: write_ready
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-credentials
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-credentials
+                  key: password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-processor
+  namespace: paysecure
+  labels:
+    app: transaction-processor
+spec:
+  selector:
+    app: transaction-processor
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: settlement-engine
+  namespace: paysecure
+  labels:
+    app: settlement-engine
+    tier: backend
+spec:
+  replicas: 4
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: settlement-engine
+  template:
+    metadata:
+      labels:
+        app: settlement-engine
+        tier: backend
+        version: stable
+    spec:
+      serviceAccountName: paysecure-app
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: settlement-engine
+          image: ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/paysecure/settlement-engine:1.0.0
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: DB_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: aurora-endpoint
+            - name: KAFKA_BOOTSTRAP
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: kafka-bootstrap
+            - name: WRITE_READY
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: write_ready
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-credentials
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-credentials
+                  key: password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: settlement-engine
+  namespace: paysecure
+  labels:
+    app: settlement-engine
+spec:
+  selector:
+    app: settlement-engine
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection
+  namespace: paysecure
+  labels:
+    app: fraud-detection
+    tier: backend
+spec:
+  replicas: 4
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: fraud-detection
+  template:
+    metadata:
+      labels:
+        app: fraud-detection
+        tier: backend
+        version: stable
+    spec:
+      serviceAccountName: paysecure-app
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: fraud-detection
+          image: ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/paysecure/fraud-detection:1.0.0
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: DB_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: aurora-endpoint
+            - name: KAFKA_BOOTSTRAP
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: kafka-bootstrap
+            - name: WRITE_READY
+              valueFrom:
+                configMapKeyRef:
+                  name: region-config
+                  key: write_ready
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-credentials
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-credentials
+                  key: password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-detection
+  namespace: paysecure
+  labels:
+    app: fraud-detection
+spec:
+  selector:
+    app: fraud-detection
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

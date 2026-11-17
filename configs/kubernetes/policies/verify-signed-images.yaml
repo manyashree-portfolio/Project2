@@ -1,0 +1,61 @@
+# Only images signed by PaySecure's pipeline key, from Indian-region registries, may run (RB-11 step 19).
+# Requires Kyverno 1.10 or later.
+# RB-11 rollback: set to Audit temporarily
+#   kubectl --context paysecure-primary patch clusterpolicy verify-signed-images --type merge -p '{"spec":{"validationFailureAction":"Audit"}}'
+# then fix the signature and set it back to Enforce.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-signed-images
+  annotations:
+    policies.kyverno.io/title: Verify signed images
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  background: false
+  webhookTimeoutSeconds: 30
+  failurePolicy: Fail
+  rules:
+    - name: verify-image-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - paysecure
+                - paysecure-cde
+      verifyImages:
+        - imageReferences:
+            # Registries are in India only (data sovereignty). Replace ACCOUNT.
+            - "ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/paysecure/*"
+            - "ACCOUNT.dkr.ecr.ap-south-2.amazonaws.com/paysecure/*"
+          mutateDigest: true
+          verifyDigest: true
+          required: true
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: |-
+                      -----BEGIN PUBLIC KEY-----
+                      REPLACE_WITH_COSIGN_PUBLIC_KEY
+                      -----END PUBLIC KEY-----
+    - name: block-unknown-registries
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - paysecure
+                - paysecure-cde
+      validate:
+        message: "Images must come from the PaySecure ECR registries in ap-south-1 or ap-south-2."
+        pattern:
+          spec:
+            =(initContainers):
+              - image: "ACCOUNT.dkr.ecr.ap-south-*.amazonaws.com/*"
+            containers:
+              - image: "ACCOUNT.dkr.ecr.ap-south-*.amazonaws.com/*"

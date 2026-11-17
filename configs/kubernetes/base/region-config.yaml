@@ -1,0 +1,16 @@
+# ConfigMap read by the services. Runbooks patch it during failover:
+#   aurora-endpoint, kafka-bootstrap, write_ready (RB-01); fraud_mode, rate_limit_scale (RB-12).
+# Values below are the Mumbai (primary) defaults; the Hyderabad overlay overrides them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: region-config
+  namespace: paysecure
+data:
+  region: ap-south-1
+  region-role: primary
+  aurora-endpoint: paysecure-primary.cluster-REPLACE.ap-south-1.rds.amazonaws.com
+  kafka-bootstrap: b-1.paysecure-prod.REPLACE.c2.kafka.ap-south-1.amazonaws.com:9098
+  write_ready: "true"
+  fraud_mode: normal
+  rate_limit_scale: "1.0"

@@ -1,0 +1,48 @@
+# Hyderabad (paysecure-dr) overlay: 50% standby footprint, writes not ready until failover (RB-01).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - name: ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/paysecure/payment-api
+    newName: ACCOUNT.dkr.ecr.ap-south-2.amazonaws.com/paysecure/payment-api
+  - name: ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/paysecure/transaction-processor
+    newName: ACCOUNT.dkr.ecr.ap-south-2.amazonaws.com/paysecure/transaction-processor
+  - name: ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/paysecure/settlement-engine
+    newName: ACCOUNT.dkr.ecr.ap-south-2.amazonaws.com/paysecure/settlement-engine
+  - name: ACCOUNT.dkr.ecr.ap-south-1.amazonaws.com/paysecure/fraud-detection
+    newName: ACCOUNT.dkr.ecr.ap-south-2.amazonaws.com/paysecure/fraud-detection
+patches:
+  - target:
+      kind: ConfigMap
+      name: region-config
+    patch: |-
+      - op: replace
+        path: /data/region
+        value: ap-south-2
+      - op: replace
+        path: /data/region-role
+        value: standby
+      - op: replace
+        path: /data/aurora-endpoint
+        value: paysecure-secondary.cluster-REPLACE.ap-south-2.rds.amazonaws.com
+      - op: replace
+        path: /data/kafka-bootstrap
+        value: b-1.paysecure-dr.REPLACE.c2.kafka.ap-south-2.amazonaws.com:9098
+      - op: replace
+        path: /data/write_ready
+        value: "false"
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: payment-api
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 6
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: transaction-processor
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 8

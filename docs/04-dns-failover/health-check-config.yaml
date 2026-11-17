@@ -1,0 +1,82 @@
+# PaySecure DR health check and failover decision configuration
+# Used by the failover controller (Lambda + Step Functions) and by Route 53 / CloudWatch definitions.
+version: 1
+service: paysecure-payment-gateway
+regions:
+  primary: ap-south-1     # Mumbai
+  standby: ap-south-2     # Hyderabad
+  independent_probe: ap-southeast-1   # Singapore, non-PII monitoring only
+
+dns:
+  record_name: api.paysecure.in
+  record_type: CNAME            # alias records to ALB have a fixed 60 s TTL
+  ttl_seconds: 30
+  routing_policy: failover
+
+route53_health_checks:
+  interval_seconds: 10
+  failure_threshold: 3          # minimum detection time = 30 seconds
+  checkers:
+    - name: mum-api-deep-health
+      type: HTTPS
+      fqdn: api-mum.paysecure.in
+      port: 443
+      path: /health/deep        # checks Aurora writer, DynamoDB, Redis, Kafka reachability
+    - name: mum-synthetic-transaction
+      type: HTTPS
+      fqdn: api-mum.paysecure.in
+      port: 443
+      path: /health/synthetic   # result of the 60 s synthetic payment
+    - name: mum-api-success-rate-alarm
+      type: CLOUDWATCH_METRIC
+      metric: payment_api_success_rate_2xx_over_total
+      threshold: 99.5           # percent
+      evaluation_minutes: 2
+  calculated:
+    name: mum-region-calculated
+    health_threshold: 2         # healthy if at least 2 of 3 children are healthy
+  standby_checker:
+    name: hyd-api-live-health
+    type: HTTPS
+    fqdn: api-hyd.paysecure.in
+    port: 443
+    path: /health/live          # standby stack up, not necessarily write-ready
+
+failover_decision:
+  mode: automated_with_veto
+  auto_failover_conditions:       # all must be true
+    - route53_calculated_check_unhealthy_for_seconds: 30
+    - independent_probe_confirms_primary_unreachable: true
+    - aurora_global_lag_ms_at_last_known: 60000   # promote only if last known lag is within the 60 s RPO
+    - standby_composite_health: healthy
+    - hours_since_last_failover: 0.5               # cool-down to prevent flapping
+  veto_window_seconds: 15        # Incident Commander may cancel within 15 s
+  manual_approval_required_when:
+    - network_partition_suspected: true            # primary reachable from some probes
+    - aurora_global_lag_ms_at_last_known_above: 60000
+    - standby_composite_health: unhealthy
+  fencing:
+    - withdraw_primary_dns_record
+    - close_primary_writer_security_group
+    - disable_primary_ci_cd_deploys
+  failback: manual_only          # never automatic
+
+write_ready_gate:
+  standby_returns_503_until_ready: true
+  retry_after_seconds: 5
+  ready_when:
+    - aurora_cluster_role: writer
+    - elasticache_role: primary
+    - kafka_consumers_assigned: true
+    - synthetic_write_succeeds: true
+
+lag_alerts:
+  aurora_global_db_ms: { threshold: 500, consecutive_checks: 2, severity: P1 }
+  dynamodb_global_table_ms: { threshold: 1000, consecutive_checks: 3, severity: P1 }
+  elasticache_global_datastore_ms: { threshold: 2000, consecutive_checks: 3, severity: P2 }
+  msk_replicator_messages: { threshold: 10000, duration_minutes: 5, severity: P2 }
+  dr_readiness_composite: { condition: any_component_unhealthy, severity: P1 }
+
+ttl_strategy:
+  normal_operation: 30
+  planned_maintenance_or_drill_24h_before: 10   # lowered ahead of drills to speed propagation

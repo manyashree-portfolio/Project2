@@ -1,0 +1,14 @@
+# Changelog
+- Day 1: repository structure, current-state architecture documentation
+- Day 2: active-passive design analysis
+- Day 2: added architecture-diagram and active-passive-diagram (.drawio + .png)
+- Day 3: active-active design, active-active diagram, comparison matrix
+- Day 4: data replication strategy, sequence diagrams, DNS failover design, health check YAML, Route 53 JSON, timing diagram; AP timeline updated (parallel DNS flip)
+- Day 5: runbooks README and RB-01 to RB-06
+- Day 5: runbooks RB-07 to RB-12 (all 12 runbooks complete)
+- Day 6: cost-model.xlsx (21 line items, 4 tiers, ROI, sensitivity, optimisation), cost-summary.md, roi-analysis.md
+- Day 7: data sovereignty compliance matrix (docs/07-data-sovereignty), annual DR drill plan and drill report template (docs/08-dr-drill-plan)
+- Day 8: Terraform (configs/terraform), Kubernetes (configs/kubernetes), monitoring, WAF emergency rules, failover/health-check/drill scripts; drill plan and sovereignty matrix updated to match
+- Day 9: audited the repository against the project brief. Found that the 5 deliberate errors are in the brief itself (Appendix E); added docs/deliberate-errors-found.md with 5 verified findings and 12 additional discrepancies. Removed an earlier mistaken exercise that planted errors in our own documents.
+- Day 10: aligned with the brief's required files and content: six data categories from A3.6, docs/07-data-sovereignty/data-flow-diagrams.md, drill-success-criteria.md and post-drill-template.md, drill calendar matching the brief with 52 weekly automated checks, FMEA with 24 failure modes, BCRB challenge responses 1-10, in-flight transaction handling.
+- Day 11: configs restructured to the brief: Terraform modules networking/compute/database/dynamodb/cache/messaging/dns/monitoring/security (plus storage, cicd, guardrails) with required tags and typed, described variables; Kubernetes Deployments, Services, ConfigMap/Secret references; WAF rules moved under the security module; shared script helper moved to scripts/common.sh; final README.

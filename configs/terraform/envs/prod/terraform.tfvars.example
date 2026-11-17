@@ -1,0 +1,10 @@
+allowed_account_ids        = ["111122223333"]
+primary_vpc_id             = "vpc-0123456789abcdef0"
+primary_private_subnet_ids = ["subnet-aaa", "subnet-bbb", "subnet-ccc"]
+route53_zone_id            = "Z1234567890"
+mum_alb_dns                = "mum-alb-123.ap-south-1.elb.amazonaws.com"
+hyd_alb_dns                = "hyd-alb-456.ap-south-2.elb.amazonaws.com"
+runner_ami                 = "ami-REPLACE"
+github_repo                = "ORG/REPO"
+cost_center               = "platform-dr"
+dr_tier                   = "hot"

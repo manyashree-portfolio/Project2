@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml
+  - region-config.yaml
+  - deployments.yaml
+  - hpa.yaml
+  - pdb.yaml
+patches:
+  - path: topology-spread-patch.yaml
+# Not listed on purpose: ../istio/fraud-detection-circuit-breaker.yaml is applied only in RB-12 or drills.
+# The Secret `aurora-credentials` is referenced by the Deployments but is created by Secrets Manager integration, not committed.

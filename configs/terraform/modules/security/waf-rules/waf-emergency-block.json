@@ -1,0 +1,66 @@
+{
+  "Name": "paysecure-waf",
+  "Scope": "REGIONAL",
+  "DefaultAction": {
+    "Allow": {}
+  },
+  "Description": "PaySecure API WAF with emergency rate rule",
+  "Rules": [
+    {
+      "Name": "allow-known-merchants",
+      "Priority": 0,
+      "Statement": {
+        "IPSetReferenceStatement": {
+          "ARN": "arn:aws:wafv2:ap-south-1:ACCOUNT:regional/ipset/paysecure-merchant-ips/IPSETID"
+        }
+      },
+      "Action": {
+        "Allow": {}
+      },
+      "VisibilityConfig": {
+        "SampledRequestsEnabled": true,
+        "CloudWatchMetricsEnabled": true,
+        "MetricName": "allow-known-merchants"
+      }
+    },
+    {
+      "Name": "emergency-rate-limit-payments",
+      "Priority": 10,
+      "Statement": {
+        "RateBasedStatement": {
+          "Limit": 100,
+          "EvaluationWindowSec": 300,
+          "AggregateKeyType": "IP",
+          "ScopeDownStatement": {
+            "ByteMatchStatement": {
+              "SearchString": "/v1/payments",
+              "FieldToMatch": {
+                "UriPath": {}
+              },
+              "TextTransformations": [
+                {
+                  "Priority": 0,
+                  "Type": "NONE"
+                }
+              ],
+              "PositionalConstraint": "STARTS_WITH"
+            }
+          }
+        }
+      },
+      "Action": {
+        "Block": {}
+      },
+      "VisibilityConfig": {
+        "SampledRequestsEnabled": true,
+        "CloudWatchMetricsEnabled": true,
+        "MetricName": "emergency-rate-limit-payments"
+      }
+    }
+  ],
+  "VisibilityConfig": {
+    "SampledRequestsEnabled": true,
+    "CloudWatchMetricsEnabled": true,
+    "MetricName": "paysecure-waf"
+  }
+}

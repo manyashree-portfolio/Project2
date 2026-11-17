@@ -1,0 +1,120 @@
+# Prometheus alert rules for DR readiness. Thresholds come from docs/03-data-replication/replication-strategy.md Section 10.
+# Metric names assume the YACE (yet-another-cloudwatch-exporter) naming and a custom payment_api_* histogram.
+# They are ASSUMED: rename to match what your exporters really emit, then run `promtool check rules`.
+groups:
+  - name: dr-replication
+    rules:
+      - alert: AuroraGlobalReplicationLagHigh
+        expr: max(aws_rds_aurora_global_db_replication_lag_maximum{region="ap-south-2"}) > 500
+        for: 2m
+        labels: { severity: P1, component: aurora }
+        annotations:
+          summary: "Aurora global replication lag above 500 ms"
+          description: "RPO target is under 60 s. Lag {{ $value }} ms. See RB-01 and replication-strategy.md."
+      - alert: DynamoDBReplicationLatencyHigh
+        expr: max by (table_name) (aws_dynamodb_replication_latency_maximum{region="ap-south-1"}) > 1000
+        for: 3m
+        labels: { severity: P1, component: dynamodb }
+        annotations:
+          summary: "DynamoDB global table replication latency above 1,000 ms"
+          description: "Table {{ $labels.table_name }}: {{ $value }} ms."
+      - alert: RedisGlobalReplicationLagHigh
+        expr: max(aws_elasticache_global_replication_lag_maximum{region="ap-south-2"}) > 2000
+        for: 3m
+        labels: { severity: P2, component: redis }
+        annotations:
+          summary: "Redis Global Datastore lag above 2,000 ms"
+          description: "Cache is rebuildable; no payment data at risk."
+      - alert: MskReplicatorLagHigh
+        expr: max(aws_kafka_message_lag_maximum{replicator_name="paysecure-replicator"}) > 10000
+        for: 5m
+        labels: { severity: P2, component: msk }
+        annotations:
+          summary: "MSK Replicator lag above 10,000 messages"
+          description: "Settlement and audit events at risk of delay after failover (RB-04)."
+      - alert: S3ReplicationFailed
+        expr: sum(increase(aws_s3_operations_failed_replication_sum[5m])) > 0
+        for: 0m
+        labels: { severity: P2, component: s3 }
+        annotations:
+          summary: "S3 cross-region replication operations failing"
+          description: "Check KMS and IAM permissions and bucket policy drift."
+      - alert: S3ReplicationBacklog
+        expr: max(aws_s3_replication_latency_maximum) > 900
+        for: 0m
+        labels: { severity: P2, component: s3 }
+        annotations:
+          summary: "S3 replication backlog older than 15 minutes"
+          description: "RTC SLA is 15 minutes."
+      - alert: DrReadinessDegraded
+        expr: count(ALERTS{alertstate="firing", alertname=~"AuroraGlobalReplicationLagHigh|DynamoDBReplicationLatencyHigh|RedisGlobalReplicationLagHigh|MskReplicatorLagHigh|S3Replication.*"}) > 0
+        for: 0m
+        labels: { severity: P1, component: dr-composite }
+        annotations:
+          summary: "DR readiness composite: at least one component unhealthy"
+          description: "Hyderabad may not meet RPO or RTO if a failover happened now."
+  - name: payments
+    rules:
+      - alert: PaymentSuccessRateLow
+        expr: payment_api_success_rate_2xx_over_total < 99.5
+        for: 2m
+        labels: { severity: P1, component: payment-api }
+        annotations:
+          summary: "Payment API success rate below 99.5%"
+          description: "Same threshold as the Route 53 CloudWatch health check."
+      - alert: PaymentP99LatencyWarning
+        expr: histogram_quantile(0.99, sum by (le) (rate(payment_api_request_duration_seconds_bucket[5m]))) > 0.25
+        for: 5m
+        labels: { severity: P2, component: payment-api }
+        annotations:
+          summary: "P99 latency above 250 ms (normal 180 ms, NPCI ceiling 300 ms)"
+      - alert: PaymentP99LatencyCritical
+        expr: histogram_quantile(0.99, sum by (le) (rate(payment_api_request_duration_seconds_bucket[5m]))) > 0.3
+        for: 2m
+        labels: { severity: P1, component: payment-api }
+        annotations:
+          summary: "P99 latency above the 300 ms NPCI ceiling"
+  - name: sovereignty
+    rules:
+      - alert: ResourcesOutsideIndia
+        # Fed by scripts/health-checks/sovereignty-check.sh through the node-exporter textfile collector
+        expr: paysecure_resources_outside_india_count > 0
+        for: 0m
+        labels: { severity: P1, component: sovereignty }
+        annotations:
+          summary: "Resources found outside ap-south-1 and ap-south-2"
+          description: "Breach of the India-only data rule. Notify COMP. See docs/07-data-sovereignty."
+      - alert: SovereigntyCheckStale
+        expr: time() - paysecure_sovereignty_check_timestamp_seconds > 86400 * 8
+        for: 0m
+        labels: { severity: P2, component: sovereignty }
+        annotations:
+          summary: "Weekly sovereignty check has not run"
+  - name: dr-drill
+    rules:
+      - record: dr_last_drill_rto_seconds
+        # Set by the drill scripts via the textfile collector, labelled with the drill type
+        expr: max by (drill_type) (paysecure_drill_rto_seconds)
+      - alert: LastDrillRtoOverTarget
+        expr: dr_last_drill_rto_seconds > 300
+        for: 0m
+        labels: { severity: P2, component: dr-drill }
+        annotations:
+          summary: "Last {{ $labels.drill_type }} drill exceeded the 5 minute RTO"
+          description: "Escalate to the BCRB and review the active-active triggers (annual-drill-plan.md)."
+  - name: weekly-readiness
+    rules:
+      - alert: WeeklyReadinessCheckFailed
+        # Fed by scripts/health-checks/weekly-dr-readiness.sh (52 runs a year)
+        expr: paysecure_weekly_readiness_failures > 0
+        for: 0m
+        labels: { severity: P2, component: dr-readiness }
+        annotations:
+          summary: "Weekly DR readiness run had failing checks"
+          description: "Open a P2 ticket; three failures in a row go to the BCRB (annual-drill-plan.md Section 10a)."
+      - alert: WeeklyReadinessCheckStale
+        expr: time() - paysecure_weekly_readiness_timestamp_seconds > 86400 * 8
+        for: 0m
+        labels: { severity: P2, component: dr-readiness }
+        annotations:
+          summary: "Weekly DR readiness run has not run for more than 8 days"
